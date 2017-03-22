@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 The TeamEos Project
- * Copyright (C) 2016-2017 The DirtyUnicorns Project
+ * Copyright (C) 2016 The DirtyUnicorns Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -669,6 +669,7 @@ public class ActionHandler {
         if (lastTask != null) {
             am.moveTaskToFront(lastTask.id, ActivityManager.MOVE_TASK_NO_USER_ACTION);
         }
+        cancelPreloadRecentApps();
     }
 
     private static ActivityManager.RunningTaskInfo getLastTask(Context context,
