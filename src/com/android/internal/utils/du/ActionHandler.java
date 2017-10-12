@@ -61,9 +61,11 @@ import android.service.wallpaper.WallpaperService;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Slog;
+import android.view.IWindowManager;
 import android.view.InputDevice;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
+import android.view.WindowManagerGlobal;
 import android.view.WindowManagerPolicyControl;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Toast;
@@ -139,7 +141,6 @@ public class ActionHandler {
     public static final String INTENT_TOGGLE_SCREENRECORD = "action_handler_toggle_screenrecord";
     public static final String INTENT_SCREENSHOT = "action_handler_screenshot";
     public static final String INTENT_REGION_SCREENSHOT = "action_handler_region_screenshot";
-    public static final String INTENT_TOGGLE_FLASHLIGHT = "action_handler_toggle_flashlight";
 
     static enum SystemAction {
         NoAction(SYSTEMUI_TASK_NO_ACTION,  SYSTEMUI, "label_action_no_action", "ic_sysbar_no_action"),
@@ -176,7 +177,9 @@ public class ActionHandler {
         EditingSmartbar(SYSTEMUI_TASK_EDITING_SMARTBAR, SYSTEMUI, "label_action_editing_smartbar", "ic_sysbar_editing_smartbar"),
         SplitScreen(SYSTEMUI_TASK_SPLIT_SCREEN, SYSTEMUI, "label_action_split_screen", "ic_sysbar_docked"),
         OneHandedModeLeft(SYSTEMUI_TASK_ONE_HANDED_MODE_LEFT, SYSTEMUI, "label_action_one_handed_mode_left", "ic_sysbar_one_handed_mode_left"),
-        OneHandedModeRight(SYSTEMUI_TASK_ONE_HANDED_MODE_RIGHT, SYSTEMUI, "label_action_one_handed_mode_right", "ic_sysbar_one_handed_mode_right");
+        OneHandedModeRight(SYSTEMUI_TASK_ONE_HANDED_MODE_RIGHT, SYSTEMUI, "label_action_one_handed_mode_right", "ic_sysbar_one_handed_mode_right"),
+        MediaArrowLeft(SYSTEMUI_TASK_MEDIA_PREVIOUS, SYSTEMUI, "label_action_media_left", "ic_skip_previous"),
+        MediaArrowRight(SYSTEMUI_TASK_MEDIA_NEXT, SYSTEMUI, "label_action_media_right", "ic_skip_next");
 
         String mAction;
         String mResPackage;
@@ -216,7 +219,8 @@ public class ActionHandler {
             SystemAction.VolumePanel, SystemAction.ClearNotifications,
             SystemAction.EditingSmartbar, SystemAction.SplitScreen,
             SystemAction.RegionScreenshot, SystemAction.OneHandedModeLeft,
-            SystemAction.OneHandedModeRight
+            SystemAction.OneHandedModeRight, SystemAction.MediaArrowLeft, 
+            SystemAction.MediaArrowRight
     };
 
     public static class ActionIconResources {
@@ -260,7 +264,9 @@ public class ActionHandler {
                     || TextUtils.equals(action, SYSTEMUI_TASK_IME_NAVIGATION_LEFT)
                     || TextUtils.equals(action, SYSTEMUI_TASK_IME_NAVIGATION_RIGHT)
                     || TextUtils.equals(action, SYSTEMUI_TASK_IME_NAVIGATION_UP)
-                    || TextUtils.equals(action, SYSTEMUI_TASK_IME_SWITCHER)) {
+                    || TextUtils.equals(action, SYSTEMUI_TASK_IME_SWITCHER)
+                    || TextUtils.equals(action, SYSTEMUI_TASK_MEDIA_PREVIOUS)
+                    || TextUtils.equals(action, SYSTEMUI_TASK_MEDIA_NEXT)) {
                 continue;
             } else if (TextUtils.equals(action, SYSTEMUI_TASK_WIFIAP)
                     && !DUActionUtils.deviceSupportsMobileData(context)) {
@@ -307,6 +313,15 @@ public class ActionHandler {
                     }
                 }
                 return mService;
+            }
+        }
+
+        private static void toggleFlashlight() {
+            IStatusBarService service = getStatusBarService();
+            try {
+                service.toggleFlashlight();
+            } catch (RemoteException e) {
+                e.printStackTrace();
             }
         }
 
@@ -459,13 +474,13 @@ public class ActionHandler {
             killProcess(context);
             return;
         } else if (action.equals(SYSTEMUI_TASK_SCREENSHOT)) {
-            takeScreenshot(context);
+            sendCommandToWindowManager(new Intent(INTENT_SCREENSHOT));
             return;
         } else if (action.equals(SYSTEMUI_TASK_REGION_SCREENSHOT)) {
-            takeRegionScreenshot(context);
+            sendCommandToWindowManager(new Intent(INTENT_REGION_SCREENSHOT));
             return;
         } else if (action.equals(SYSTEMUI_TASK_SCREENRECORD)) {
-            takeScreenrecord(context);
+            sendCommandToWindowManager(new Intent(INTENT_TOGGLE_SCREENRECORD));
             return;
             // } else if (action.equals(SYSTEMUI_TASK_AUDIORECORD)) {
             // takeAudiorecord();
@@ -489,10 +504,10 @@ public class ActionHandler {
             StatusBarHelper.fireGoogleNowOnTap();
             return;
         } else if (action.equals(SYSTEMUI_TASK_POWER_MENU)) {
-            showPowerMenu(context);
+            sendCommandToWindowManager(new Intent(INTENT_SHOW_POWER_MENU));
             return;
         } else if (action.equals(SYSTEMUI_TASK_TORCH)) {
-            toggleTorch(context);
+            StatusBarHelper.toggleFlashlight();
             return;
         } else if (action.equals(SYSTEMUI_TASK_CAMERA)) {
             launchCamera(context);
@@ -851,24 +866,13 @@ public class ActionHandler {
         }
     }
 
-    private static void toggleTorch(Context context) {
-        context.sendBroadcastAsUser(new Intent(INTENT_TOGGLE_FLASHLIGHT), new UserHandle(
-                UserHandle.USER_ALL));
-    }
-
-    private static void takeScreenshot(Context context) {
-        context.sendBroadcastAsUser(new Intent(INTENT_SCREENSHOT), new UserHandle(
-                UserHandle.USER_ALL));
-    }
-
-    private static void takeRegionScreenshot(Context context) {
-        context.sendBroadcastAsUser(new Intent(INTENT_REGION_SCREENSHOT), new UserHandle(
-                UserHandle.USER_ALL));
-    }
-
-    private static void takeScreenrecord(Context context) {
-        context.sendBroadcastAsUser(new Intent(INTENT_TOGGLE_SCREENRECORD), new UserHandle(
-                UserHandle.USER_ALL));
+    private static void sendCommandToWindowManager(Intent intent) {
+        IWindowManager wm = WindowManagerGlobal.getWindowManagerService();
+        try {
+            wm.sendCustomAction(intent);
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
     }
 
     private static void killProcess(Context context) {
@@ -909,7 +913,7 @@ public class ActionHandler {
                     }
                 });
 
-                IActivityManager am = ActivityManagerNative.getDefault();
+                IActivityManager iam = ActivityManagerNative.getDefault();
                 // this may not be needed due to !isLockTaskOn() in entry if
                 //if (am.getLockTaskModeState() != ActivityManager.LOCK_TASK_MODE_NONE) return;
 
@@ -926,7 +930,36 @@ public class ActionHandler {
 
                 if (pkg != null && !pkg.equals("com.android.systemui")
                         && !pkg.equals(defaultHomePackage)) {
-                    am.forceStopPackage(pkg, UserHandle.USER_CURRENT);
+
+                    // Restore home screen stack before killing the app
+                    Intent home = new Intent(Intent.ACTION_MAIN, null);
+                    home.addCategory(Intent.CATEGORY_HOME);
+                    home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                    context.startActivity(home);
+
+                    // Kill the app
+                    iam.forceStopPackage(pkg, UserHandle.USER_CURRENT);
+
+                    // Remove killed app from Recents
+                    final ActivityManager am = (ActivityManager)
+                            context.getSystemService(Context.ACTIVITY_SERVICE);
+                    final List<ActivityManager.RecentTaskInfo> recentTasks =
+                            am.getRecentTasksForUser(ActivityManager.getMaxRecentTasksStatic(),
+                            ActivityManager.RECENT_IGNORE_HOME_STACK_TASKS
+                                    | ActivityManager.RECENT_INGORE_PINNED_STACK_TASKS
+                                    | ActivityManager.RECENT_IGNORE_UNAVAILABLE
+                                    | ActivityManager.RECENT_INCLUDE_PROFILES,
+                                    UserHandle.CURRENT.getIdentifier());
+                    final int size = recentTasks.size();
+                    for (int i = 0; i < size; i++) {
+                        ActivityManager.RecentTaskInfo recentInfo = recentTasks.get(i);
+                        if (recentInfo.baseIntent.getComponent().getPackageName().equals(pkg)) {
+                            int taskid = recentInfo.persistentId;
+                            am.removeTask(taskid);
+                        }
+                    }
+
                     String pkgName;
                     try {
                         pkgName = (String) packageManager.getApplicationLabel(
@@ -1009,11 +1042,6 @@ public class ActionHandler {
         } catch (Exception e) {
         }
         return false;
-    }
-
-    private static void showPowerMenu(Context context) {
-        context.sendBroadcastAsUser(new Intent(INTENT_SHOW_POWER_MENU), new UserHandle(
-                UserHandle.USER_ALL));
     }
 
     public static void volumePanel(Context context) {
